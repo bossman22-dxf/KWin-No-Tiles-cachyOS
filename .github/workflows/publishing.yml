@@ -96,6 +96,7 @@ jobs:
           }
           docker run --rm --user 0:0 \
             --volume "$GITHUB_WORKSPACE/site:/site" \
+            --volume "$GITHUB_WORKSPACE/site/x86_64:/repo" \
             --env GPG_PRIVATE_KEY \
             --env GPG_PASSPHRASE \
             --env GPG_FINGERPRINT \
@@ -118,7 +119,7 @@ jobs:
             exit 1
           }
 
-          cd /site/x86_64
+          cd /repo
           shopt -s nullglob
           packages=(*.pkg.tar.zst)
           [[ "${#packages[@]}" -ge 1 && "${#packages[@]}" -le 2 ]] || {
@@ -163,10 +164,29 @@ jobs:
           printf '%s\n' "$expected" > /site/GPG_FINGERPRINT.txt
 
           # Generate the manifest inside the same container that creates the database.
-          cd /site/x86_64
+          cd /repo
           sha256sum *.pkg.tar.zst *.pkg.tar.zst.sig kwin-no-tiles.db kwin-no-tiles.db.sig > SHA256SUMS
           rm -f /root/.gnupg/passphrase
           CONTAINER_SCRIPT
+
+      - name: Verify repository files before publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in \
+            site/x86_64/kwin-no-tiles.db \
+            site/x86_64/kwin-no-tiles.db.sig \
+            site/x86_64/kwin-no-tiles.db.tar.gz \
+            site/x86_64/kwin-no-tiles.db.tar.gz.sig \
+            site/x86_64/SHA256SUMS; do
+            if [[ ! -s "$file" ]]; then
+              echo "::error::Required repository file is missing or empty: $file"
+              find site/x86_64 -maxdepth 1 -type f -printf '%f\\n' | sort
+              exit 1
+            fi
+          done
+          echo "Verified repository database, signatures, and checksum manifest:"
+          find site/x86_64 -maxdepth 1 -type f -printf '%f\\n' | sort
 
       - name: Create repository installation instructions
         shell: bash
