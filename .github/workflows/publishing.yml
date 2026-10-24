@@ -100,15 +100,16 @@ jobs:
             echo "::error::The newest release's fingerprint does not match the configured GPG signing key."
             exit 1
           }
-          mkdir -p "$GITHUB_WORKSPACE/repo-output"
           docker run --rm --user 0:0 \
             --volume "$GITHUB_WORKSPACE/site:/site" \
-            --volume "$GITHUB_WORKSPACE/repo-output:/output" \
             --env GPG_PRIVATE_KEY \
             --env GPG_PASSPHRASE \
             --env GPG_FINGERPRINT \
-            archlinux:latest bash -euo pipefail -s <<'CONTAINER_SCRIPT'
+            archlinux:latest bash -euo pipefail -s <<'CONTAINER_SCRIPT' > "$RUNNER_TEMP/kwin-no-tiles-repo-output.b64"
           set -euo pipefail
+          exec 3>&1
+          exec 1>&2
+          mkdir -p /output
           pacman -Sy --noconfirm --needed gnupg
           command -v repo-add >/dev/null || {
             echo "repo-add is not available in the Arch Linux container." >&2
@@ -176,8 +177,11 @@ jobs:
           cd /output
           sha256sum *.pkg.tar.zst *.pkg.tar.zst.sig kwin-no-tiles.db kwin-no-tiles.db.sig > SHA256SUMS
           rm -f /root/.gnupg/passphrase
+          tar -czf - -C /output \
+            kwin-no-tiles.db kwin-no-tiles.db.sig \
+            kwin-no-tiles.db.tar.gz kwin-no-tiles.db.tar.gz.sig SHA256SUMS | base64 -w0 >&3
           CONTAINER_SCRIPT
-          cp "$GITHUB_WORKSPACE/repo-output/"* site/x86_64/
+          base64 -d "$RUNNER_TEMP/kwin-no-tiles-repo-output.b64" | tar -xz -C site/x86_64
 
       - name: Verify repository files before publishing
         shell: bash
