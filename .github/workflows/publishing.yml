@@ -163,6 +163,8 @@ jobs:
           fi
           chmod 0755 /usr/local/bin/gpg
           export PATH="/usr/local/bin:$PATH"
+          # Keep the passphrase file private, but make repository outputs readable by the host runner.
+          umask 022
           repo-add --sign --include-sigs --key "$expected" kwin-no-tiles.db.tar.gz "${packages[@]}" >&2
 
           test -s kwin-no-tiles.db.tar.gz
@@ -173,9 +175,13 @@ jobs:
           rm -f kwin-no-tiles.db kwin-no-tiles.db.sig
           cp -f kwin-no-tiles.db.tar.gz kwin-no-tiles.db
           cp -f kwin-no-tiles.db.tar.gz.sig kwin-no-tiles.db.sig
+          chmod 0644 kwin-no-tiles.db kwin-no-tiles.db.sig \
+            kwin-no-tiles.db.tar.gz kwin-no-tiles.db.tar.gz.sig \
+            kwin-no-tiles.files.tar.gz kwin-no-tiles.files.tar.gz.sig
 
           /usr/bin/gpg --batch --armor --export "$expected" > /site-meta/keys/kwin-no-tiles-signing-key.asc
           printf '%s\n' "$expected" > /site-meta/GPG_FINGERPRINT.txt
+          chmod 0644 /site-meta/keys/kwin-no-tiles-signing-key.asc /site-meta/GPG_FINGERPRINT.txt
           rm -f /root/.gnupg/passphrase
           echo "Repository output files written inside container:" >&2
           find /repo -maxdepth 1 -type f -printf '%f (%s bytes)\n' | sort >&2
