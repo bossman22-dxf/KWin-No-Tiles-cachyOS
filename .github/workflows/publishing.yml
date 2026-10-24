@@ -19,137 +19,206 @@ concurrency:
 
 jobs:
   publish:
-    # Only publish after a successful run of the existing build/release workflow.
-    # Manual runs are also allowed for recovery/republication.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     env:
       GH_TOKEN: ${{ github.token }}
-      GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-      GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-      GPG_FINGERPRINT: ${{ secrets.GPG_FINGERPRINT }}
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Validate signing secrets
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ -n "$GPG_PRIVATE_KEY" ]] || { echo "::error::GPG_PRIVATE_KEY is empty"; exit 1; }
-          [[ -n "$GPG_FINGERPRINT" ]] || { echo "::error::GPG_FINGERPRINT is empty"; exit 1; }
-          # The passphrase may legitimately be empty for an unprotected key.
-
-      - name: Download the two newest successful release packages
+      - name: Download the two newest signed release packages
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p site/x86_64 site/keys
           mapfile -t tags < <(
-            gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,publishedAt               --jq 'map(select((.tagName | startswith("kwin-no-tiles-")) and (.tagName | endswith("-cachyos-v3")))) | sort_by(.publishedAt) | reverse | .[0:2][] | .tagName'
+            gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,publishedAt \
+              --jq 'map(select((.tagName | startswith("kwin-no-tiles-")) and (.tagName | endswith("-cachyos-v3")))) | sort_by(.publishedAt) | reverse | .[0:2][] | .tagName'
           )
-          if [[ "${#tags[@]}" -eq 0 ]]; then
-            echo "::error::No successful KWin NO-TILES releases exist yet. Run the build/release workflow successfully first."
+          [[ "${#tags[@]}" -ge 1 ]] || {
+            echo "::error::No KWin NO-TILES releases exist. The build/release workflow must publish one first."
             exit 1
-          fi
+          }
           for tag in "${tags[@]}"; do
-            echo "Downloading package from $tag"
-            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern '*.pkg.tar.zst' --dir site/x86_64
+            echo "Downloading signed package assets from $tag"
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+              --pattern '*.pkg.tar.zst' \
+              --pattern '*.pkg.tar.zst.sig' \
+              --pattern 'kwin-no-tiles-signing-key.asc' \
+              --pattern 'GPG_FINGERPRINT.txt' \
+              --dir site/x86_64
+            # The release key files share fixed names across versions; download the current release's copies below.
           done
           shopt -s nullglob
           packages=(site/x86_64/*.pkg.tar.zst)
           [[ "${#packages[@]}" -ge 1 && "${#packages[@]}" -le 2 ]] || {
-            echo "::error::Expected one or two release packages; found ${#packages[@]}."
+            echo "::error::Expected one or two package versions; found ${#packages[@]}."
             exit 1
           }
-          # Prevent stale package files from silently entering the repository.
-          printf '%s\n' "${packages[@]}"
+          for package in "${packages[@]}"; do
+            [[ -s "${package}.sig" ]] || {
+              echo "::error::Missing detached package signature for ${package##*/}."
+              exit 1
+            }
+          done
+          # Use signing-key assets from the newest release tag.
+          gh release download "${tags[0]}" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'kwin-no-tiles-signing-key.asc' \
+            --pattern 'GPG_FINGERPRINT.txt' \
+            --dir "$RUNNER_TEMP/kwin-signing-key"
+          install -m 0644 "$RUNNER_TEMP/kwin-signing-key/kwin-no-tiles-signing-key.asc" site/keys/kwin-no-tiles-signing-key.asc
+          install -m 0644 "$RUNNER_TEMP/kwin-signing-key/GPG_FINGERPRINT.txt" site/GPG_FINGERPRINT.txt
 
-      - name: Build and sign the pacman repository
+      - name: Verify release signatures and sign repository database
         shell: bash
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          GPG_FINGERPRINT: ${{ secrets.GPG_FINGERPRINT }}
         run: |
           set -euo pipefail
-          # Use Arch's repo-add so the database is generated in the native format.
+          [[ -n "$GPG_PRIVATE_KEY" && -n "$GPG_FINGERPRINT" ]] || {
+            echo "::error::GPG_PRIVATE_KEY and GPG_FINGERPRINT secrets must be configured."
+            exit 1
+          }
           docker run --rm --user 0:0 \
             --volume "$GITHUB_WORKSPACE/site:/site" \
             --env GPG_PRIVATE_KEY \
             --env GPG_PASSPHRASE \
             --env GPG_FINGERPRINT \
-            archlinux:latest bash -euo pipefail -c '
-              pacman -Sy --noconfirm --needed gnupg pacman-contrib
-              install -d -m 700 /root/.gnupg
-              printf "%s" "$GPG_PRIVATE_KEY" | gpg --batch --import
-              actual="$(gpg --batch --with-colons --fingerprint "$GPG_FINGERPRINT" | awk -F: '\''$1 == "fpr" { print $10; exit }'\'')"
-              [[ -n "$actual" && "$actual" == "$GPG_FINGERPRINT" ]] || {
-                echo "GPG fingerprint does not match the imported key" >&2
-                exit 1
-              }
-              if [[ -n "$GPG_PASSPHRASE" ]]; then
-                printf "%s" "$GPG_PASSPHRASE" > /tmp/gpg-passphrase
-                chmod 600 /tmp/gpg-passphrase
-                export GPG_TTY=/dev/null
-                # Configure loopback pinentry for non-interactive signing.
-                printf "%s\\n" "allow-loopback-pinentry" > /root/.gnupg/gpg-agent.conf
-                gpgconf --kill gpg-agent || true
-                gpg --batch --pinentry-mode loopback --passphrase-file /tmp/gpg-passphrase --local-user "$GPG_FINGERPRINT" --detach-sign --output /tmp/signing-test.sig /dev/null
-                rm -f /tmp/signing-test.sig /tmp/gpg-passphrase
-              fi
-              cd /site/x86_64
-              shopt -s nullglob
-              packages=(*.pkg.tar.zst)
-              [[ "${#packages[@]}" -ge 1 && "${#packages[@]}" -le 2 ]]
-              for package in "${packages[@]}"; do
-                if [[ -n "$GPG_PASSPHRASE" ]]; then
-                  gpg --batch --yes --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" --local-user "$GPG_FINGERPRINT" --detach-sign "$package"
-                else
-                  gpg --batch --yes --local-user "$GPG_FINGERPRINT" --detach-sign "$package"
-                fi
-              done
-              if [[ -n "$GPG_PASSPHRASE" ]]; then
-                repo-add --sign --key "$GPG_FINGERPRINT" --passphrase "$GPG_PASSPHRASE" kwin-no-tiles.db.tar.gz "${packages[@]}"
-              else
-                repo-add --sign --key "$GPG_FINGERPRINT" kwin-no-tiles.db.tar.gz "${packages[@]}"
-              fi
-              # Export the public key so clients can import it into pacman-key.
-              gpg --batch --armor --export "$GPG_FINGERPRINT" > /site/keys/kwin-no-tiles-signing-key.asc
-              gpg --batch --export "$GPG_FINGERPRINT" > /site/keys/kwin-no-tiles-signing-key.gpg
-            '
+            archlinux:latest bash -euo pipefail -s <<'CONTAINER_SCRIPT'
+          set -euo pipefail
+          pacman -Sy --noconfirm --needed gnupg
+          command -v repo-add >/dev/null || {
+            echo "repo-add is not available in the Arch Linux container." >&2
+            exit 1
+          }
 
-      - name: Create repository instructions
+          install -d -m 700 /root/.gnupg
+          chmod 700 /root/.gnupg
+          printf '%s' "$GPG_PRIVATE_KEY" | /usr/bin/gpg --batch --import
+          expected="$(printf '%s' "$GPG_FINGERPRINT" | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]')"
+          actual="$(/usr/bin/gpg --batch --with-colons --fingerprint "$expected" | awk -F: '$1 == "fpr" { print $10; exit }')"
+          secret="$(/usr/bin/gpg --batch --with-colons --list-secret-keys "$expected" | awk -F: '$1 == "fpr" { print $10; exit }')"
+          [[ -n "$actual" && "$actual" == "$expected" && "$secret" == "$expected" ]] || {
+            echo "The imported signing key does not match GPG_FINGERPRINT or lacks its private key." >&2
+            exit 1
+          }
+
+          cd /site/x86_64
+          shopt -s nullglob
+          packages=(*.pkg.tar.zst)
+          [[ "${#packages[@]}" -ge 1 && "${#packages[@]}" -le 2 ]] || {
+            echo "Expected one or two packages in the repository directory." >&2
+            exit 1
+          }
+          for package in "${packages[@]}"; do
+            [[ -s "${package}.sig" ]] || {
+              echo "Missing package signature: ${package}.sig" >&2
+              exit 1
+            }
+            # The keyring is clean and contains only the expected project's key.
+            /usr/bin/gpg --batch --verify "${package}.sig" "$package"
+          done
+
+          if [[ -n "$GPG_PASSPHRASE" ]]; then
+            umask 077
+            printf '%s\n' "$GPG_PASSPHRASE" > /root/.gnupg/passphrase
+            cat > /usr/local/bin/gpg <<'GPG_WRAPPER'
+          #!/usr/bin/bash
+          exec /usr/bin/gpg --batch --yes --pinentry-mode loopback --passphrase-file /root/.gnupg/passphrase "$@"
+          GPG_WRAPPER
+          else
+            cat > /usr/local/bin/gpg <<'GPG_WRAPPER'
+          #!/usr/bin/bash
+          exec /usr/bin/gpg --batch --yes "$@"
+          GPG_WRAPPER
+          fi
+          chmod 0755 /usr/local/bin/gpg
+          export PATH="/usr/local/bin:$PATH"
+          repo-add --sign --include-sigs --key "$expected" kwin-no-tiles.db.tar.gz "${packages[@]}"
+
+          test -s kwin-no-tiles.db.tar.gz
+          test -s kwin-no-tiles.db.tar.gz.sig
+          /usr/bin/gpg --batch --verify kwin-no-tiles.db.tar.gz.sig kwin-no-tiles.db.tar.gz
+          # Publish database aliases as regular files so static hosting does not depend on symlink handling.
+          rm -f kwin-no-tiles.db kwin-no-tiles.db.sig
+          cp -f kwin-no-tiles.db.tar.gz kwin-no-tiles.db
+          cp -f kwin-no-tiles.db.tar.gz.sig kwin-no-tiles.db.sig
+
+          /usr/bin/gpg --batch --armor --export "$expected" > /site/keys/kwin-no-tiles-signing-key.asc
+          printf '%s\n' "$expected" > /site/GPG_FINGERPRINT.txt
+          rm -f /root/.gnupg/passphrase
+          CONTAINER_SCRIPT
+
+          (
+            cd site/x86_64
+            sha256sum *.pkg.tar.zst *.pkg.tar.zst.sig kwin-no-tiles.db kwin-no-tiles.db.sig > SHA256SUMS
+          )
+
+      - name: Create repository installation instructions
         shell: bash
         run: |
-          cat > site/index.html <<'HTML'
+          fingerprint="$(tr -d '[:space:]' < site/GPG_FINGERPRINT.txt)"
+          cat > site/index.html <<HTML
           <!doctype html>
           <html lang="en">
           <head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <title>KWin NO-TILES CachyOS pacman repository</title>
+            <style>body{font:16px/1.55 system-ui,sans-serif;max-width:850px;margin:3rem auto;padding:0 1rem}code,pre{background:#f2f2f2;padding:.2rem .35rem;border-radius:.25rem}pre{padding:1rem;overflow:auto}.fingerprint{overflow-wrap:anywhere}</style>
           </head>
           <body>
             <h1>KWin NO-TILES for CachyOS</h1>
-            <p>This is the signed x86_64 pacman repository for KWin NO-TILES built for CachyOS x86-64-v3.</p>
+            <p>Signed pacman repository for the KWin NO-TILES package, built for CachyOS x86-64-v3.</p>
             <h2>Signing key</h2>
-            <p><a href="keys/kwin-no-tiles-signing-key.asc">Download the public signing key (ASCII armored)</a></p>
-            <p>Verify the fingerprint against the maintainer-published fingerprint before trusting the key.</p>
-            <h2>Repository configuration</h2>
-            <p>Repository setup instructions will be published here after the first successful deployment and fingerprint verification.</p>
+            <p><a href="keys/kwin-no-tiles-signing-key.asc">Download public signing key</a> · <a href="GPG_FINGERPRINT.txt">Full signing-key fingerprint</a></p>
+            <p class="fingerprint"><strong>Fingerprint:</strong> <code>$fingerprint</code></p>
+            <p>Before trusting the key, compare its full fingerprint with a maintainer-published source you already trust.</p>
+            <h2>1. Import and trust the key</h2>
+            <p>Download the key and fingerprint, inspect the key's fingerprint, and only continue if it matches the independently verified fingerprint above.</p>
+            <pre><code>curl -fsSLo /tmp/kwin-no-tiles-signing-key.asc \\
+              https://bossman22-dxf.github.io/KWin-No-Tiles-cachyOS/keys/kwin-no-tiles-signing-key.asc
+          gpg --show-keys --with-fingerprint /tmp/kwin-no-tiles-signing-key.asc
+          sudo pacman-key --add /tmp/kwin-no-tiles-signing-key.asc
+          sudo pacman-key --lsign-key $fingerprint</code></pre>
+            <h2>2. Add the pacman repository</h2>
+            <p>Add this section to <code>/etc/pacman.conf</code>:</p>
+            <pre><code>[kwin-no-tiles]
+          SigLevel = Required
+          Server = https://bossman22-dxf.github.io/KWin-No-Tiles-cachyOS/$arch</code></pre>
+            <p>Then synchronise and install:</p>
+            <pre><code>sudo pacman -Syu
+          sudo pacman -S kwin-no-tiles</code></pre>
+            <p><strong>Important:</strong> this package conflicts with and replaces the stock <code>kwin</code> package. Keep a rollback copy of the previous working package. The build checks pass, but runtime testing on the maintainer's desktop has not been performed.</p>
+            <p><a href="x86_64/SHA256SUMS">Repository package/database SHA-256 manifest</a></p>
           </body>
           </html>
           HTML
+          cat > site/README.txt <<TXT
+          KWin NO-TILES CachyOS pacman repository
+          Repository URL: https://bossman22-dxf.github.io/KWin-No-Tiles-cachyOS/$arch
+          Signing-key fingerprint: $fingerprint
+
+          See the website index.html for the key import, fingerprint-checking, pacman configuration,
+          and installation steps. Package and database signatures are required.
+          TXT
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: site
 
