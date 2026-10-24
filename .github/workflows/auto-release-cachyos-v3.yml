@@ -167,14 +167,20 @@ jobs:
           gpg --batch --armor --export "$expected_fingerprint" > "$output/kwin-no-tiles-signing-key.asc"
           printf '%s\n' "$expected_fingerprint" > "$output/GPG_FINGERPRINT.txt"
 
-          # Relative paths make sha256sum -c work in a downloaded release directory.
+          # The build container creates these files as root, so replace them
+          # atomically rather than trying to overwrite/append to root-owned files.
           cd "$output"
-          sha256sum "${packages[0]##*/}" "${packages[0]##*/}.sig" > SHA256SUMS
-          rm -f "$passphrase_file"
+          sha256sum "${packages[0]##*/}" "${packages[0]##*/}.sig" > "$RUNNER_TEMP/SHA256SUMS.new"
+          mv -f "$RUNNER_TEMP/SHA256SUMS.new" "$output/SHA256SUMS"
+
+          cp "$output/build-report.txt" "$RUNNER_TEMP/build-report.txt"
           {
             echo "Package detached signature: PASS"
             echo "Signing key fingerprint: $expected_fingerprint"
-          } >> "$output/build-report.txt"
+          } >> "$RUNNER_TEMP/build-report.txt"
+          mv -f "$RUNNER_TEMP/build-report.txt" "$output/build-report.txt"
+
+          rm -f "$passphrase_file"
 
       - name: Upload build evidence
         if: always() && steps.gate.outputs.should_build == 'true'
