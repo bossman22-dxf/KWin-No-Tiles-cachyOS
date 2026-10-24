@@ -67,7 +67,8 @@ jobs:
               exit 1
             }
           done
-          # Use signing-key assets from the newest release tag.
+          # Use key details from the newest release and verify they match the configured signing key.
+          mkdir -p "$RUNNER_TEMP/kwin-signing-key"
           gh release download "${tags[0]}" --repo "$GITHUB_REPOSITORY" \
             --pattern 'kwin-no-tiles-signing-key.asc' \
             --pattern 'GPG_FINGERPRINT.txt' \
@@ -85,6 +86,12 @@ jobs:
           set -euo pipefail
           [[ -n "$GPG_PRIVATE_KEY" && -n "$GPG_FINGERPRINT" ]] || {
             echo "::error::GPG_PRIVATE_KEY and GPG_FINGERPRINT secrets must be configured."
+            exit 1
+          }
+          release_fingerprint="$(tr -d '[:space:]' < site/GPG_FINGERPRINT.txt)"
+          expected_fingerprint="$(printf '%s' "$GPG_FINGERPRINT" | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]')"
+          [[ "$release_fingerprint" == "$expected_fingerprint" ]] || {
+            echo "::error::The newest release's fingerprint does not match the configured GPG signing key."
             exit 1
           }
           docker run --rm --user 0:0 \
