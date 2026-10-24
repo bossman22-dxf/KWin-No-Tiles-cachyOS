@@ -161,13 +161,12 @@ jobs:
 
           /usr/bin/gpg --batch --armor --export "$expected" > /site/keys/kwin-no-tiles-signing-key.asc
           printf '%s\n' "$expected" > /site/GPG_FINGERPRINT.txt
+
+          # Generate the manifest inside the same container that creates the database.
+          cd /site/x86_64
+          sha256sum *.pkg.tar.zst *.pkg.tar.zst.sig kwin-no-tiles.db kwin-no-tiles.db.sig > SHA256SUMS
           rm -f /root/.gnupg/passphrase
           CONTAINER_SCRIPT
-
-          (
-            cd site/x86_64
-            sha256sum *.pkg.tar.zst *.pkg.tar.zst.sig kwin-no-tiles.db kwin-no-tiles.db.sig > SHA256SUMS
-          )
 
       - name: Create repository installation instructions
         shell: bash
