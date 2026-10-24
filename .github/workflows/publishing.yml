@@ -107,10 +107,8 @@ jobs:
             --env GPG_FINGERPRINT \
             archlinux:latest bash -euo pipefail -s <<'CONTAINER_SCRIPT' > "$RUNNER_TEMP/kwin-no-tiles-repo-output.tar.gz"
           set -euo pipefail
-          exec 3>&1
-          exec 1>&2
           mkdir -p /output
-          pacman -Sy --noconfirm --needed gnupg
+          pacman -Sy --noconfirm --needed gnupg >&2
           command -v repo-add >/dev/null || {
             echo "repo-add is not available in the Arch Linux container." >&2
             exit 1
@@ -118,7 +116,7 @@ jobs:
 
           install -d -m 700 /root/.gnupg
           chmod 700 /root/.gnupg
-          printf '%s' "$GPG_PRIVATE_KEY" | /usr/bin/gpg --batch --import
+          printf '%s' "$GPG_PRIVATE_KEY" | /usr/bin/gpg --batch --import >&2
           expected="$(printf '%s' "$GPG_FINGERPRINT" | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]')"
           actual="$(/usr/bin/gpg --batch --with-colons --fingerprint "$expected" | awk -F: '$1 == "fpr" { print $10; exit }')"
           secret="$(/usr/bin/gpg --batch --with-colons --list-secret-keys "$expected" | awk -F: '$1 == "fpr" { print $10; exit }')"
@@ -142,7 +140,7 @@ jobs:
               exit 1
             }
             # The keyring is clean and contains only the expected project's key.
-            /usr/bin/gpg --batch --verify "${package}.sig" "$package"
+            /usr/bin/gpg --batch --verify "${package}.sig" "$package" >&2
           done
 
           if [[ -n "$GPG_PASSPHRASE" ]]; then
@@ -160,11 +158,11 @@ jobs:
           fi
           chmod 0755 /usr/local/bin/gpg
           export PATH="/usr/local/bin:$PATH"
-          repo-add --sign --include-sigs --key "$expected" kwin-no-tiles.db.tar.gz "${packages[@]}"
+          repo-add --sign --include-sigs --key "$expected" kwin-no-tiles.db.tar.gz "${packages[@]}" >&2
 
           test -s kwin-no-tiles.db.tar.gz
           test -s kwin-no-tiles.db.tar.gz.sig
-          /usr/bin/gpg --batch --verify kwin-no-tiles.db.tar.gz.sig kwin-no-tiles.db.tar.gz
+          /usr/bin/gpg --batch --verify kwin-no-tiles.db.tar.gz.sig kwin-no-tiles.db.tar.gz >&2
           # Publish database aliases as regular files so static hosting does not depend on symlink handling.
           rm -f kwin-no-tiles.db kwin-no-tiles.db.sig
           cp -f kwin-no-tiles.db.tar.gz kwin-no-tiles.db
