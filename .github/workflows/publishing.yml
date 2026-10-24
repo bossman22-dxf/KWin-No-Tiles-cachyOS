@@ -53,10 +53,7 @@ jobs:
             gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
               --pattern '*.pkg.tar.zst' \
               --pattern '*.pkg.tar.zst.sig' \
-              --pattern 'kwin-no-tiles-signing-key.asc' \
-              --pattern 'GPG_FINGERPRINT.txt' \
               --dir site/x86_64
-            # The release key files share fixed names across versions; download the current release's copies below.
           done
           shopt -s nullglob
           packages=(site/x86_64/*.pkg.tar.zst)
@@ -196,7 +193,7 @@ jobs:
             <p>Add this section to <code>/etc/pacman.conf</code>:</p>
             <pre><code>[kwin-no-tiles]
           SigLevel = Required
-          Server = https://bossman22-dxf.github.io/KWin-No-Tiles-cachyOS/$arch</code></pre>
+          Server = https://bossman22-dxf.github.io/KWin-No-Tiles-cachyOS/\$arch</code></pre>
             <p>Then synchronise and install:</p>
             <pre><code>sudo pacman -Syu
           sudo pacman -S kwin-no-tiles</code></pre>
@@ -207,7 +204,7 @@ jobs:
           HTML
           cat > site/README.txt <<TXT
           KWin NO-TILES CachyOS pacman repository
-          Repository URL: https://bossman22-dxf.github.io/KWin-No-Tiles-cachyOS/$arch
+          Repository URL: https://bossman22-dxf.github.io/KWin-No-Tiles-cachyOS/\$arch
           Signing-key fingerprint: $fingerprint
 
           See the website index.html for the key import, fingerprint-checking, pacman configuration,
