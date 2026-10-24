@@ -103,7 +103,7 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/repo-output"
           docker run --rm --user 0:0 \
             --volume "$GITHUB_WORKSPACE/site:/site" \
-            --volume "$RUNNER_TEMP/kwin-no-tiles-repo-output:/output" \
+            --volume "$GITHUB_WORKSPACE/repo-output:/output" \
             --env GPG_PRIVATE_KEY \
             --env GPG_PASSPHRASE \
             --env GPG_FINGERPRINT \
@@ -177,7 +177,7 @@ jobs:
           sha256sum *.pkg.tar.zst *.pkg.tar.zst.sig kwin-no-tiles.db kwin-no-tiles.db.sig > SHA256SUMS
           rm -f /root/.gnupg/passphrase
           CONTAINER_SCRIPT
-          cp "$RUNNER_TEMP/kwin-no-tiles-repo-output/"* site/x86_64/
+          cp "$GITHUB_WORKSPACE/repo-output/"* site/x86_64/
 
       - name: Verify repository files before publishing
         shell: bash
