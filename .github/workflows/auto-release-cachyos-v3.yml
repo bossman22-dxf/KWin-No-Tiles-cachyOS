@@ -1,0 +1,192 @@
+name: Automatically build and release CachyOS KWin NO-TILES (v3)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 8 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kwin-no-tiles-cachyos-v3-release
+  cancel-in-progress: false
+
+jobs:
+  check-build-release:
+    name: Check upstream, test patch, build and release only new versions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Query live CachyOS v3 KWin metadata
+        id: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/kwin-release"
+          docker run --rm --user 0:0 \
+            --volume "$GITHUB_WORKSPACE/.github/scripts/query-cachyos-v3.sh:/query-cachyos-v3.sh:ro" \
+            cachyos/cachyos:latest bash /query-cachyos-v3.sh \
+            | tee "$RUNNER_TEMP/kwin-release/upstream-metadata.txt"
+
+          version="$(sed -n 's/^Version:[[:space:]]*//p' "$RUNNER_TEMP/kwin-release/upstream-metadata.txt" | head -n 1)"
+          repository="$(sed -n 's/^Repository:[[:space:]]*//p' "$RUNNER_TEMP/kwin-release/upstream-metadata.txt" | head -n 1)"
+          [[ -n "$version" && -n "$repository" ]] || {
+            echo "::error::The live CachyOS version/repository could not be parsed."
+            exit 1
+          }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "repository=$repository" >> "$GITHUB_OUTPUT"
+
+      - name: Decide whether this upstream version needs a build
+        id: gate
+        shell: bash
+        env:
+          UPSTREAM_VERSION: ${{ steps.upstream.outputs.version }}
+        run: |
+          set -euo pipefail
+          release_tag="kwin-no-tiles-${UPSTREAM_VERSION}-cachyos-v3"
+          expected_asset="kwin-no-tiles-${UPSTREAM_VERSION}-x86_64.pkg.tar.zst"
+
+          if gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            assets="$(gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+            if printf '%s\n' "$assets" | grep -Fxq "$expected_asset" \
+              && printf '%s\n' "$assets" | grep -Fxq 'build-report.txt' \
+              && printf '%s\n' "$assets" | grep -Fxq 'SHA256SUMS'; then
+              echo "should_build=false" >> "$GITHUB_OUTPUT"
+              echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
+              echo "reason=already-released" >> "$GITHUB_OUTPUT"
+              echo "Release $release_tag already contains the package. No rebuild or overwrite." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+
+            echo "::warning::Found an incomplete release for $release_tag; removing only that incomplete release before retrying."
+            gh release delete "$release_tag" --yes --cleanup-tag --repo "$GITHUB_REPOSITORY"
+          fi
+
+          latest_tag="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,publishedAt \
+            --jq 'map(select((.tagName | startswith("kwin-no-tiles-")) and (.tagName | endswith("-cachyos-v3")))) | sort_by(.publishedAt) | reverse | .[0].tagName // ""')"
+          if [[ -n "$latest_tag" ]]; then
+            latest_version="${latest_tag#kwin-no-tiles-}"
+            latest_version="${latest_version%-cachyos-v3}"
+            greatest="$(printf '%s\n%s\n' "$latest_version" "$UPSTREAM_VERSION" | sort -V | tail -n 1)"
+            if [[ "$greatest" == "$latest_version" && "$latest_version" != "$UPSTREAM_VERSION" ]]; then
+              echo "should_build=false" >> "$GITHUB_OUTPUT"
+              echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
+              echo "reason=repository-version-behind" >> "$GITHUB_OUTPUT"
+              {
+                echo "## No build started"
+                echo
+                echo "The live CachyOS version is $UPSTREAM_VERSION, older than the latest successful release $latest_version."
+                echo "No release was changed or deleted."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          fi
+
+          echo "should_build=true" >> "$GITHUB_OUTPUT"
+          echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "reason=new-version" >> "$GITHUB_OUTPUT"
+          {
+            echo "## New CachyOS v3 KWin version detected"
+            echo
+            echo "- Upstream package: \`kwin $UPSTREAM_VERSION\`"
+            echo "- Release tag to create after all checks pass: \`$release_tag\`"
+            echo "- No release is created if signature, patch, build, or package-content checks fail."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build and verify the package
+        if: steps.gate.outputs.should_build == 'true'
+        shell: bash
+        env:
+          EXPECTED_PACKAGE_VERSION: ${{ steps.upstream.outputs.version }}
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/kwin-release"
+          mkdir -p "$output"
+          chmod 0777 "$output"
+          docker run --rm --user 0:0 \
+            --volume "$GITHUB_WORKSPACE:/input:ro" \
+            --volume "$GITHUB_WORKSPACE/.github/scripts/build-cachyos-v3.sh:/build-cachyos-v3.sh:ro" \
+            --volume "$output:/output" \
+            --env EXPECTED_PACKAGE_VERSION="$EXPECTED_PACKAGE_VERSION" \
+            cachyos/cachyos:latest bash /build-cachyos-v3.sh
+
+      - name: Upload build evidence
+        if: always() && steps.gate.outputs.should_build == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: kwin-no-tiles-${{ steps.upstream.outputs.version }}-cachyos-v3-build-evidence
+          path: |
+            ${{ runner.temp }}/kwin-release/*.pkg.tar.zst
+            ${{ runner.temp }}/kwin-release/PKGINFO.txt
+            ${{ runner.temp }}/kwin-release/SRCINFO.generated
+            ${{ runner.temp }}/kwin-release/SHA256SUMS
+            ${{ runner.temp }}/kwin-release/build-report.txt
+            ${{ runner.temp }}/kwin-release/upstream-metadata.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Publish the verified package as a GitHub Release
+        if: steps.gate.outputs.should_build == 'true'
+        shell: bash
+        env:
+          UPSTREAM_VERSION: ${{ steps.upstream.outputs.version }}
+          RELEASE_TAG: ${{ steps.gate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/kwin-release"
+          shopt -s nullglob
+          packages=("$output"/*.pkg.tar.zst)
+          [[ "${#packages[@]}" -eq 1 ]] || {
+            echo "::error::Refusing to publish without exactly one verified package."
+            exit 1
+          }
+          test -s "$output/build-report.txt"
+          test -s "$output/SHA256SUMS"
+          test -s "$output/PKGINFO.txt"
+
+          cat > "$output/release-notes.md" <<EOF
+          ## KWin NO-TILES for CachyOS x86-64-v3
+
+          - Stock CachyOS KWin version: ${UPSTREAM_VERSION}
+          - Patch: native tiling can be disabled through the KWin setting added by this project.
+          - Source authentication: KDE detached signature checked with the PKGBUILD's allowed signing keys.
+          - Patch check: zero-fuzz patch application required.
+          - Package-content checks: executable, version/provides/conflicts metadata, and NativeTilingEnabled schema checked.
+          - Build workflow: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+
+          This release is for testing; the package has not been runtime-tested on the maintainer's desktop.
+          EOF
+
+          gh release create "$RELEASE_TAG" \
+            "${packages[0]}" \
+            "$output/PKGINFO.txt" \
+            "$output/SHA256SUMS" \
+            "$output/build-report.txt" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "KWin NO-TILES ${UPSTREAM_VERSION} (CachyOS v3)" \
+            --notes-file "$output/release-notes.md"
+
+      - name: Keep only the two most recent successful releases
+        if: steps.gate.outputs.should_build == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t old_tags < <(
+            gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,publishedAt \
+              --jq 'map(select((.tagName | startswith("kwin-no-tiles-")) and (.tagName | endswith("-cachyos-v3")))) | sort_by(.publishedAt) | reverse | .[2:][] | .tagName'
+          )
+          for tag in "${old_tags[@]}"; do
+            [[ -n "$tag" ]] || continue
+            echo "Removing older successful release: $tag"
+            gh release delete "$tag" --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" \
+              || echo "::warning::Could not prune old release $tag; the newly published release remains intact."
+          done

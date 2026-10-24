@@ -1,0 +1,92 @@
+name: Manual baseline build — KWin 6.8.1 CachyOS v3
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kwin-no-tiles-cachyos-v3-baseline-build
+  cancel-in-progress: false
+
+jobs:
+  build-baseline:
+    name: Verify and build the KWin 6.8.1 baseline package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      TARGET_PACKAGE_VERSION: "6.8.1-2.1"
+      EXPECTED_SOURCE_SHA256: "f3d725f81061c1ba97fdef8aeb2101a5c5e03c77f11e9a2abaa1dfed4489d3b6"
+      EXPECTED_PATCH_SHA256: "6aae75198b0bd8514981bbdce121675b5d50f10638436e8e58980b2e9056171e"
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Verify the reviewed KDE source and patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          pkgver="$(sed -n 's/^pkgver=//p' PKGBUILD | head -n 1)"
+          pkgrel="$(sed -n 's/^pkgrel=//p' PKGBUILD | head -n 1)"
+          [[ "$pkgver-$pkgrel" == "$TARGET_PACKAGE_VERSION" ]] || {
+            echo "::error::PKGBUILD targets $pkgver-$pkgrel; expected $TARGET_PACKAGE_VERSION."
+            exit 1
+          }
+
+          actual_patch_sha="$(sha256sum disable-native-tiling-6.8.patch | awk '{print $1}')"
+          [[ "$actual_patch_sha" == "$EXPECTED_PATCH_SHA256" ]] || {
+            echo "::error::Reviewed patch checksum mismatch."
+            exit 1
+          }
+
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+          archive="$tmpdir/kwin-${pkgver}.tar.xz"
+          curl --fail --silent --show-error --location --retry 3 \
+            "https://download.kde.org/stable/plasma/${pkgver}/kwin-${pkgver}.tar.xz" \
+            --output "$archive"
+          actual_source_sha="$(sha256sum "$archive" | awk '{print $1}')"
+          [[ "$actual_source_sha" == "$EXPECTED_SOURCE_SHA256" ]] || {
+            echo "::error::KWin source checksum mismatch."
+            exit 1
+          }
+
+          mkdir -p "$tmpdir/source"
+          tar -xf "$archive" -C "$tmpdir/source"
+          patch --dry-run --batch --fuzz=0 \
+            -d "$tmpdir/source/kwin-${pkgver}" -Np0 \
+            -i "$GITHUB_WORKSPACE/disable-native-tiling-6.8.patch"
+          echo "KDE source checksum: PASS"
+          echo "Patch checksum and zero-fuzz applicability: PASS"
+
+      - name: Build and verify package in the live CachyOS v3 environment
+        shell: bash
+        env:
+          EXPECTED_PACKAGE_VERSION: "6.8.1-2.1"
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/kwin-release"
+          mkdir -p "$output"
+          chmod 0777 "$output"
+          docker run --rm --user 0:0 \
+            --volume "$GITHUB_WORKSPACE:/input:ro" \
+            --volume "$GITHUB_WORKSPACE/.github/scripts/build-cachyos-v3.sh:/build-cachyos-v3.sh:ro" \
+            --volume "$output:/output" \
+            --env EXPECTED_PACKAGE_VERSION="$EXPECTED_PACKAGE_VERSION" \
+            cachyos/cachyos:latest bash /build-cachyos-v3.sh
+
+      - name: Upload test package and build evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: kwin-no-tiles-6.8.1-2.1-cachyos-v3-manual-test
+          path: |
+            ${{ runner.temp }}/kwin-release/*.pkg.tar.zst
+            ${{ runner.temp }}/kwin-release/PKGINFO.txt
+            ${{ runner.temp }}/kwin-release/SRCINFO.generated
+            ${{ runner.temp }}/kwin-release/SHA256SUMS
+            ${{ runner.temp }}/kwin-release/build-report.txt
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,0 +1,16 @@
+# makepkg/build outputs
+/src/
+/pkg/
+/build/
+/Backup/
+*.pkg.tar*
+*.log
+
+# Downloaded upstream sources/signatures
+*.tar.xz
+*.tar.xz.sig
+
+# Common temporary files
+*.tmp
+*.bak
+*~

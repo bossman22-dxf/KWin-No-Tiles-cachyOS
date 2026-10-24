@@ -1,0 +1,332 @@
+--- src/kwin.kcfg
++++ src/kwin.kcfg
+@@ -167,7 +167,10 @@
+         <entry name="SnapOnlyWhenOverlapping" type="Bool">
+             <default>false</default>
+         </entry>
+-        <entry name="ElectricBorders" type="Int">
++        <entry name="NativeTilingEnabled" type="Bool">
++            <default>true</default>
++        </entry>
++        <entry name="ElectricBorders" type="Int">
+             <default>0</default>
+         </entry>
+         <entry name="ElectricBorderDelay" type="Int">
+--- src/kcms/options/kwinoptions_settings.kcfg
++++ src/kcms/options/kwinoptions_settings.kcfg
+@@ -28,7 +28,11 @@
+         <default>false</default>
+     </entry>
+ 
+-    <entry name="Placement" type="Enum">
++    <entry key="NativeTilingEnabled" type="Bool">
++        <default>true</default>
++    </entry>
++
++    <entry name="Placement" type="Enum">
+         <choices name="PlacementChoices">
+             <choice name="Smart"></choice>
+             <choice name="Maximizing"></choice>
+--- src/kcms/options/ui/MovementAndPlacement.qml
++++ src/kcms/options/ui/MovementAndPlacement.qml
+@@ -118,8 +118,24 @@
+     }
+ 
+ 
+-    Kirigami.FormGroup {
+-        title: i18ndc("kcmkwm", "@title:group", "Placement")
++    Kirigami.FormGroup {
++        title: i18ndc("kcmkwm", "@title:group", "Native window tiling")
++        Kirigami.FormEntry {
++            contentItem: QQC2.CheckBox {
++                text: i18nd("kcmkwm", "Enable built-in window tiling")
++                checked: kcm.kwinSettings.nativeTilingEnabled
++                onCheckedChanged: kcm.kwinSettings.nativeTilingEnabled = checked
++
++                KCM.SettingStateBinding {
++                    configObject: kcm.kwinSettings
++                    settingName: "NativeTilingEnabled"
++                }
++            }
++        }
++    }
++
++    Kirigami.FormGroup {
++        title: i18ndc("kcmkwm", "@title:group", "Placement")
+         Kirigami.FormEntry {
+             contentItem: QQC2.ComboBox {
+                 Kirigami.FormData.label: i18nd("kcmkwm", "Window &placement:")
+--- src/options.h
++++ src/options.h
+@@ -172,7 +172,8 @@
+     /**
+      * Whether a window is tiled to half screen when reaching left or right screen edge while been moved.
+      */
+-    Q_PROPERTY(bool electricBorderTiling READ electricBorderTiling WRITE setElectricBorderTiling NOTIFY electricBorderTilingChanged)
++    Q_PROPERTY(bool electricBorderTiling READ electricBorderTiling WRITE setElectricBorderTiling NOTIFY electricBorderTilingChanged)
++    Q_PROPERTY(bool nativeTilingEnabled READ nativeTilingEnabled WRITE setNativeTilingEnabled NOTIFY nativeTilingEnabledChanged)
+     /**
+      * Whether each screen has its own active corners instead of limiting to only four corners across all screens.
+      */
+@@ -608,10 +609,14 @@
+      * @returns true if window is tiled to half screen when reaching left or
+      * right screen edge while been moved.
+      */
+-    bool electricBorderTiling() const
+-    {
+-        return electric_border_tiling;
+-    }
++    bool electricBorderTiling() const
++    {
++        return electric_border_tiling;
++    }
++    bool nativeTilingEnabled() const
++    {
++        return m_nativeTilingEnabled;
++    }
+     /**
+      * @returns true if each screen has its own active corners instead of limiting
+      * to only four corners across all screens.
+@@ -712,7 +717,8 @@
+     void setCondensedTitle(bool condensedTitle);
+     void setElectricBorderMaximize(bool electricBorderMaximize);
+     void setElectricBorderAllScreenCorner(bool electricBorderAllScreenCorner);
+-    void setElectricBorderTiling(bool electricBorderTiling);
++    void setElectricBorderTiling(bool electricBorderTiling);
++    void setNativeTilingEnabled(bool nativeTilingEnabled);
+     void setElectricBorderCornerRatio(float electricBorderCornerRatio);
+     void setBorderlessMaximizedWindows(bool borderlessMaximizedWindows);
+     void setKillPingTimeout(int killPingTimeout);
+@@ -889,7 +895,8 @@
+     void doubleClickBorderToMaximizeChanged();
+     void condensedTitleChanged();
+     void electricBorderMaximizeChanged();
+-    void electricBorderTilingChanged();
++    void electricBorderTilingChanged();
++    void nativeTilingEnabledChanged();
+     void electricBorderCornerRatioChanged();
+     void electricBorderAllScreenCornerChanged();
+     void borderlessMaximizedWindowsChanged();
+@@ -960,7 +967,8 @@
+     uint CmdAllModKey;
+ 
+     bool electric_border_maximize;
+-    bool electric_border_tiling;
++    bool electric_border_tiling;
++    bool m_nativeTilingEnabled = true;
+     bool electric_border_all_screen_corner;
+     float electric_border_corner_ratio;
+     bool borderless_maximized_windows;
+--- src/options.cpp
++++ src/options.cpp
+@@ -546,7 +546,16 @@
+     Q_EMIT electricBorderTilingChanged();
+ }
+ 
+-void Options::setElectricBorderCornerRatio(float electricBorderCornerRatio)
++void Options::setNativeTilingEnabled(bool nativeTilingEnabled)
++{
++    if (m_nativeTilingEnabled == nativeTilingEnabled) {
++        return;
++    }
++    m_nativeTilingEnabled = nativeTilingEnabled;
++    Q_EMIT nativeTilingEnabledChanged();
++}
++
++void Options::setElectricBorderCornerRatio(float electricBorderCornerRatio)
+ {
+     if (electric_border_corner_ratio == electricBorderCornerRatio) {
+         return;
+@@ -756,7 +765,8 @@
+     setKillPingTimeout(m_settings->killPingTimeout());
+     setBorderlessMaximizedWindows(m_settings->borderlessMaximizedWindows());
+     setElectricBorderMaximize(m_settings->electricBorderMaximize());
+-    setElectricBorderTiling(m_settings->electricBorderTiling());
++    setElectricBorderTiling(m_settings->electricBorderTiling());
++    setNativeTilingEnabled(m_settings->nativeTilingEnabled());
+     setElectricBorderCornerRatio(m_settings->electricBorderCornerRatio());
+     setElectricBorderAllScreenCorner(m_settings->electricBorderAllScreenCorner());
+     setAllowTearing(m_settings->allowTearing());
+--- src/window.cpp
++++ src/window.cpp
+@@ -1092,7 +1092,7 @@
+             maximize(*maximizeMode, m_electricGeometryRestore);
+         }
+         setElectricBorderMaximizing(false);
+-    } else if (wasMove && (m_interactiveMoveResize.modifiers & Qt::ShiftModifier)) {
++    } else if (options->nativeTilingEnabled() && wasMove && (m_interactiveMoveResize.modifiers & Qt::ShiftModifier)) {
+         setQuickTileMode(QuickTileFlag::Custom, m_interactiveMoveResize.anchor);
+     }
+     setElectricBorderMode(std::nullopt);
+@@ -1228,8 +1228,8 @@
+             Q_EMIT interactiveMoveResizeStepped(nextMoveResizeGeom);
+         }
+ 
+-        if (!isRequestedFullScreen()) {
+-            if (modifiers & Qt::ShiftModifier) {
++        if (!isRequestedFullScreen()) {
++            if (options->nativeTilingEnabled() && (modifiers & Qt::ShiftModifier)) {
+                 resetQuickTilingMaximizationZones();
+                 const auto &r = quickTileGeometry(QuickTileFlag::Custom, global);
+                 if (r.isEmpty()) {
+@@ -2511,7 +2511,7 @@
+ 
+         RectF area = workspace()->clientArea(MaximizeArea, this, QPointF(xroot, yroot));
+         QuickTileMode tile = QuickTileFlag::None;
+-        if (options->electricBorderTiling()) {
++        if (options->electricBorderTiling() && options->nativeTilingEnabled()) {
+             if (xroot <= area.x() + 20) {
+                 tile |= QuickTileFlag::Left;
+                 innerBorder = isInScreen(QPoint(area.x() - 1, yroot));
+@@ -3548,8 +3548,11 @@
+ {
+     LogicalOutput *output = workspace()->outputAt(pos);
+ 
+-    if (mode & QuickTileFlag::Custom) {
+-        Tile *tile = workspace()->rootTile(output)->pick(pos);
++    if (mode & QuickTileFlag::Custom) {
++        if (!options->nativeTilingEnabled()) {
++            return RectF();
++        }
++        Tile *tile = workspace()->rootTile(output)->pick(pos);
+         if (tile) {
+             return tile->windowGeometry();
+         } else {
+@@ -3651,9 +3654,13 @@
+     return combined;
+ }
+ 
+-void Window::handleQuickTileShortcut(QuickTileMode mode)
+-{
+-    QPointF tileAtPoint = moveResizeGeometry().center();
++void Window::handleQuickTileShortcut(QuickTileMode mode)
++{
++    if (!options->nativeTilingEnabled() && mode != QuickTileFlag::None) {
++        return;
++    }
++
++    QPointF tileAtPoint = moveResizeGeometry().center();
+     if (mode != QuickTileFlag::None) {
+         const QuickTileMode oldMode = requestedQuickTileMode();
+         if (oldMode == QuickTileMode(QuickTileFlag::None) && requestedMaximizeMode() == MaximizeMode::MaximizeRestore) {
+@@ -3715,9 +3722,9 @@
+     setQuickTileMode(mode, tileAtPoint);
+ }
+ 
+-void Window::handleCustomQuickTileShortcut(QuickTileMode mode)
+-{
+-    if (mode == QuickTileFlag::None) {
++void Window::handleCustomQuickTileShortcut(QuickTileMode mode)
++{
++    if (!options->nativeTilingEnabled() || mode == QuickTileFlag::None) {
+         return;
+     }
+     // if window is not tiled already, set it to nearest one
+@@ -3758,9 +3765,13 @@
+     setQuickTileMode(mode, m_moveResizeGeometry.center());
+ }
+ 
+-void Window::setQuickTileMode(QuickTileMode mode, const QPointF &tileAtPoint)
+-{
+-    workspace()->updateFocusMousePosition(Cursors::self()->mouse()->pos()); // may cause leave event
++void Window::setQuickTileMode(QuickTileMode mode, const QPointF &tileAtPoint)
++{
++    if (!options->nativeTilingEnabled() && mode != QuickTileFlag::None) {
++        return;
++    }
++
++    workspace()->updateFocusMousePosition(Cursors::self()->mouse()->pos()); // may cause leave event
+ 
+     // sanitize the mode, ie. simplify "invalid" combinations
+     if ((mode & QuickTileFlag::Horizontal) == QuickTileMode(QuickTileFlag::Horizontal)) {
+--- src/placement.cpp
++++ src/placement.cpp
+@@ -769,9 +769,9 @@
+     }
+ }
+ 
+-void Workspace::quickTileWindow(QuickTileMode mode)
+-{
+-    if (!m_activeWindow) {
++void Workspace::quickTileWindow(QuickTileMode mode)
++{
++    if (!m_activeWindow || (!options->nativeTilingEnabled() && mode != QuickTileFlag::None)) {
+         return;
+     }
+ 
+@@ -778,9 +778,9 @@
+     m_activeWindow->handleQuickTileShortcut(mode);
+ }
+ 
+-void Workspace::customQuickTileWindow(QuickTileMode mode)
+-{
+-    if (!m_activeWindow) {
++void Workspace::customQuickTileWindow(QuickTileMode mode)
++{
++    if (!m_activeWindow || !options->nativeTilingEnabled()) {
+         return;
+     }
+ 
+--- src/workspace.cpp
++++ src/workspace.cpp
+@@ -54,8 +54,9 @@
+ #include "pointer_input.h"
+ #include "scene/workspacescene.h"
+ #include "tabletmodemanager.h"
+-#include "tiles/tilemanager.h"
+-#include "useractions.h"
++#include "tiles/tilemanager.h"
++#include "tiles/tile.h"
++#include "useractions.h"
+ #include "utils/envvar.h"
+ #include "utils/kernel.h"
+ #include "utils/lightsensor.h"
+@@ -198,8 +199,19 @@
+     KSharedConfigPtr config = kwinApp()->config();
+     m_screenEdges->setConfig(config);
+     m_screenEdges->init();
+-    connect(options, &Options::configChanged, m_screenEdges.get(), &ScreenEdges::reconfigure);
+-    connect(VirtualDesktopManager::self(), &VirtualDesktopManager::layoutChanged, m_screenEdges.get(), &ScreenEdges::updateLayout);
++    connect(options, &Options::configChanged, m_screenEdges.get(), &ScreenEdges::reconfigure);
++    connect(options, &Options::nativeTilingEnabledChanged, this, [this] {
++        if (options->nativeTilingEnabled()) {
++            return;
++        }
++
++        for (Window *window : windows()) {
++            if (Tile *tile = window->requestedTile()) {
++                tile->unmanage(window);
++            }
++        }
++    });
++    connect(VirtualDesktopManager::self(), &VirtualDesktopManager::layoutChanged, m_screenEdges.get(), &ScreenEdges::updateLayout);
+     connect(this, &Workspace::windowActivated, m_screenEdges.get(), &ScreenEdges::checkBlocking);
+ 
+     connect(this, &Workspace::windowRemoved, m_focusChain.get(), &FocusChain::remove);
+--- src/tiles/tile.cpp
++++ src/tiles/tile.cpp
+@@ -7,8 +7,9 @@
+     SPDX-License-Identifier: GPL-2.0-or-later
+ */
+ 
+-#include "tile.h"
+-#include "core/output.h"
++#include "tile.h"
++#include "options.h"
++#include "core/output.h"
+ #include "effect/globals.h"
+ #include "tilemanager.h"
+ #include "virtualdesktops.h"
+@@ -374,9 +375,9 @@
+     setRelativeGeometry(newGeom);
+ }
+ 
+-bool Tile::manage(Window *window)
+-{
+-    if (!window->isResizable() || window->isAppletPopup()) {
++bool Tile::manage(Window *window)
++{
++    if (!options->nativeTilingEnabled() || !window->isResizable() || window->isAppletPopup()) {
+         return false;
+     }
+ 
