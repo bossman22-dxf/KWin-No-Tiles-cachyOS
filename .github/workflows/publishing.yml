@@ -105,7 +105,7 @@ jobs:
             --env GPG_PRIVATE_KEY \
             --env GPG_PASSPHRASE \
             --env GPG_FINGERPRINT \
-            archlinux:latest bash -euo pipefail -s <<'CONTAINER_SCRIPT' > "$RUNNER_TEMP/kwin-no-tiles-repo-output.b64"
+            archlinux:latest bash -euo pipefail -s <<'CONTAINER_SCRIPT' > "$RUNNER_TEMP/kwin-no-tiles-repo-output.tar.gz"
           set -euo pipefail
           exec 3>&1
           exec 1>&2
@@ -179,9 +179,9 @@ jobs:
           rm -f /root/.gnupg/passphrase
           tar -czf - -C /output \
             kwin-no-tiles.db kwin-no-tiles.db.sig \
-            kwin-no-tiles.db.tar.gz kwin-no-tiles.db.tar.gz.sig SHA256SUMS | base64 -w0 >&3
+            kwin-no-tiles.db.tar.gz kwin-no-tiles.db.tar.gz.sig SHA256SUMS >&3
           CONTAINER_SCRIPT
-          base64 -d "$RUNNER_TEMP/kwin-no-tiles-repo-output.b64" | tar -xz -C site/x86_64
+          tar -xzf "$RUNNER_TEMP/kwin-no-tiles-repo-output.tar.gz" -C site/x86_64
 
       - name: Verify repository files before publishing
         shell: bash
