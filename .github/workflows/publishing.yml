@@ -100,9 +100,8 @@ jobs:
             echo "::error::The newest release's fingerprint does not match the configured GPG signing key."
             exit 1
           }
-          docker run --rm --user 0:0 \
+          docker run --name kwin-no-tiles-repo-builder --user 0:0 \
             --volume "$GITHUB_WORKSPACE/site:/site" \
-            --volume "$GITHUB_WORKSPACE/site/x86_64:/repo" \
             --env GPG_PRIVATE_KEY \
             --env GPG_PASSPHRASE \
             --env GPG_FINGERPRINT \
@@ -125,7 +124,7 @@ jobs:
             exit 1
           }
 
-          cd /repo
+          cd /site/x86_64
           shopt -s nullglob
           packages=(*.pkg.tar.zst)
           [[ "${#packages[@]}" -ge 1 && "${#packages[@]}" -le 2 ]] || {
@@ -170,10 +169,15 @@ jobs:
           printf '%s\n' "$expected" > /site/GPG_FINGERPRINT.txt
 
           # Generate the manifest inside the same container that creates the database.
-          cd /repo
+          cd /site/x86_64
           sha256sum *.pkg.tar.zst *.pkg.tar.zst.sig kwin-no-tiles.db kwin-no-tiles.db.sig > SHA256SUMS
           rm -f /root/.gnupg/passphrase
           CONTAINER_SCRIPT
+          # Copy generated files out explicitly; do not rely on container bind-mount writes.
+          docker cp kwin-no-tiles-repo-builder:/site/x86_64/. site/x86_64/
+          docker cp kwin-no-tiles-repo-builder:/site/keys/kwin-no-tiles-signing-key.asc site/keys/kwin-no-tiles-signing-key.asc
+          docker cp kwin-no-tiles-repo-builder:/site/GPG_FINGERPRINT.txt site/GPG_FINGERPRINT.txt
+          docker rm kwin-no-tiles-repo-builder
 
       - name: Verify repository files before publishing
         shell: bash
