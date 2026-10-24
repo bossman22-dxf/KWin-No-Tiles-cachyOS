@@ -1,9 +1,9 @@
-name: Automatically build and release CachyOS KWin NO-TILES (v3)
+name: Automatically build and release CachyOS KWin NO-TILES
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "17 8 * * *"
+    - cron: "0 */6 * * *"
 
 permissions:
   contents: write
@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   check-build-release:
-    name: Check upstream, test patch, build and release only new versions
+    name: Check upstream, build and release new versions
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     env:
@@ -162,7 +162,7 @@ jobs:
           - Package-content checks: executable, version/provides/conflicts metadata, and NativeTilingEnabled schema checked.
           - Build workflow: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
 
-          This release is for testing; the package has not been runtime-tested on the maintainer's desktop.
+          The package has passed source-signature, patch-applicability, build, and package-content checks. Runtime testing on the maintainer's desktop has not been performed.
           EOF
 
           gh release create "$RELEASE_TAG" \
