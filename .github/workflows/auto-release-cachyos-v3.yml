@@ -57,8 +57,11 @@ jobs:
           if gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             assets="$(gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null || true)"
             if printf '%s\n' "$assets" | grep -Fxq "$expected_asset" \
+              && printf '%s\n' "$assets" | grep -Fxq "${expected_asset}.sig" \
               && printf '%s\n' "$assets" | grep -Fxq 'build-report.txt' \
-              && printf '%s\n' "$assets" | grep -Fxq 'SHA256SUMS'; then
+              && printf '%s\n' "$assets" | grep -Fxq 'SHA256SUMS' \
+              && printf '%s\n' "$assets" | grep -Fxq 'kwin-no-tiles-signing-key.asc' \
+              && printf '%s\n' "$assets" | grep -Fxq 'GPG_FINGERPRINT.txt'; then
               echo "should_build=false" >> "$GITHUB_OUTPUT"
               echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
               echo "reason=already-released" >> "$GITHUB_OUTPUT"
@@ -118,6 +121,61 @@ jobs:
             --env EXPECTED_PACKAGE_VERSION="$EXPECTED_PACKAGE_VERSION" \
             cachyos/cachyos:latest bash /build-cachyos-v3.sh
 
+      - name: Sign verified package and export public key
+        if: steps.gate.outputs.should_build == 'true'
+        shell: bash
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          GPG_FINGERPRINT: ${{ secrets.GPG_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/kwin-release"
+          shopt -s nullglob
+          packages=("$output"/*.pkg.tar.zst)
+          [[ "${#packages[@]}" -eq 1 ]] || {
+            echo "::error::Refusing to sign unless exactly one validated package exists."
+            exit 1
+          }
+          [[ -n "$GPG_PRIVATE_KEY" && -n "$GPG_FINGERPRINT" ]] || {
+            echo "::error::GPG_PRIVATE_KEY and GPG_FINGERPRINT secrets must be configured."
+            exit 1
+          }
+
+          export GNUPGHOME="$RUNNER_TEMP/kwin-signing-gnupg"
+          install -d -m 700 "$GNUPGHOME"
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          expected_fingerprint="$(printf '%s' "$GPG_FINGERPRINT" | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]')"
+          actual_fingerprint="$(gpg --batch --with-colons --fingerprint "$expected_fingerprint" | awk -F: '$1 == "fpr" { print $10; exit }')"
+          secret_fingerprint="$(gpg --batch --with-colons --list-secret-keys "$expected_fingerprint" | awk -F: '$1 == "fpr" { print $10; exit }')"
+          [[ -n "$actual_fingerprint" && "$actual_fingerprint" == "$expected_fingerprint" && "$secret_fingerprint" == "$expected_fingerprint" ]] || {
+            echo "::error::Imported signing key does not match GPG_FINGERPRINT or has no matching private key."
+            exit 1
+          }
+
+          passphrase_file="$RUNNER_TEMP/kwin-signing-passphrase"
+          if [[ -n "$GPG_PASSPHRASE" ]]; then
+            umask 077
+            printf '%s' "$GPG_PASSPHRASE" > "$passphrase_file"
+            gpg --batch --yes --pinentry-mode loopback --passphrase-file "$passphrase_file" \
+              --local-user "$expected_fingerprint" --detach-sign --output "${packages[0]}.sig" "${packages[0]}"
+          else
+            gpg --batch --yes --local-user "$expected_fingerprint" \
+              --detach-sign --output "${packages[0]}.sig" "${packages[0]}"
+          fi
+          gpg --batch --verify "${packages[0]}.sig" "${packages[0]}"
+          gpg --batch --armor --export "$expected_fingerprint" > "$output/kwin-no-tiles-signing-key.asc"
+          printf '%s\n' "$expected_fingerprint" > "$output/GPG_FINGERPRINT.txt"
+
+          # Relative paths make sha256sum -c work in a downloaded release directory.
+          cd "$output"
+          sha256sum "${packages[0]##*/}" "${packages[0]##*/}.sig" > SHA256SUMS
+          rm -f "$passphrase_file"
+          {
+            echo "Package detached signature: PASS"
+            echo "Signing key fingerprint: $expected_fingerprint"
+          } >> "$output/build-report.txt"
+
       - name: Upload build evidence
         if: always() && steps.gate.outputs.should_build == 'true'
         uses: actions/upload-artifact@v6
@@ -125,6 +183,9 @@ jobs:
           name: kwin-no-tiles-${{ steps.upstream.outputs.version }}-cachyos-v3-build-evidence
           path: |
             ${{ runner.temp }}/kwin-release/*.pkg.tar.zst
+            ${{ runner.temp }}/kwin-release/*.pkg.tar.zst.sig
+            ${{ runner.temp }}/kwin-release/kwin-no-tiles-signing-key.asc
+            ${{ runner.temp }}/kwin-release/GPG_FINGERPRINT.txt
             ${{ runner.temp }}/kwin-release/PKGINFO.txt
             ${{ runner.temp }}/kwin-release/SRCINFO.generated
             ${{ runner.temp }}/kwin-release/SHA256SUMS
@@ -162,17 +223,22 @@ jobs:
           - Package-content checks: executable, version/provides/conflicts metadata, and NativeTilingEnabled schema checked.
           - Build workflow: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
 
-          The package has passed source-signature, patch-applicability, build, and package-content checks. Runtime testing on the maintainer's desktop has not been performed.
+          The package has passed source-signature, patch-applicability, build, package-content, and detached-package-signature checks. Runtime testing on the maintainer's desktop has not been performed.
+
+          The package asset has a matching .sig detached signature generated with the project's GPG signing key. The public key and full fingerprint are attached to this release. Verify the fingerprint through a maintainer-published source before trusting the key.
 
           ## Download and install
 
-          Download the `.pkg.tar.zst` package asset below, then from the directory where it was downloaded run:
+          Download the package, its matching .sig, SHA256SUMS, kwin-no-tiles-signing-key.asc, and GPG_FINGERPRINT.txt into the same directory. Inspect the full fingerprint in the key and compare it with the maintainer-published fingerprint before importing/trusting the key. Then run:
 
           ```bash
+          gpg --import kwin-no-tiles-signing-key.asc
+          gpg --verify ${packages[0]##*/}.sig ${packages[0]##*/}
+          sha256sum -c SHA256SUMS
           sudo pacman -U ./${packages[0]##*/}
           ```
 
-          This installs the project package and replaces the stock `kwin` package because the package intentionally conflicts with it. Keep a copy of the previous working package if you want a quick rollback. Verify the downloaded package against `SHA256SUMS` before installing.
+          This installs the project package and replaces the stock kwin package because the package intentionally conflicts with it. Keep a copy of the previous working package if you want a quick rollback. Pacman must already trust the signing key for automatic package-signature checking; manual gpg --verify is an independent check before installation.
           EOF
 
           cat > "$output/INSTALL.txt" <<INSTALL_EOF
@@ -192,6 +258,9 @@ jobs:
 
           gh release create "$RELEASE_TAG" \
             "${packages[0]}" \
+            "${packages[0]}.sig" \
+            "$output/kwin-no-tiles-signing-key.asc" \
+            "$output/GPG_FINGERPRINT.txt" \
             "$output/INSTALL.txt" \
             "$output/PKGINFO.txt" \
             "$output/SHA256SUMS" \
