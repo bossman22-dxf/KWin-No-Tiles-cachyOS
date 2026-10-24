@@ -100,8 +100,10 @@ jobs:
             echo "::error::The newest release's fingerprint does not match the configured GPG signing key."
             exit 1
           }
-          docker run --name kwin-no-tiles-repo-builder --user 0:0 \
+          mkdir -p "$RUNNER_TEMP/kwin-no-tiles-repo-output"
+          docker run --rm --user 0:0 \
             --volume "$GITHUB_WORKSPACE/site:/site" \
+            --volume "$RUNNER_TEMP/kwin-no-tiles-repo-output:/output" \
             --env GPG_PRIVATE_KEY \
             --env GPG_PASSPHRASE \
             --env GPG_FINGERPRINT \
@@ -124,7 +126,9 @@ jobs:
             exit 1
           }
 
-          cd /site/x86_64
+          cp /site/x86_64/*.pkg.tar.zst /output/
+          cp /site/x86_64/*.pkg.tar.zst.sig /output/
+          cd /output
           shopt -s nullglob
           packages=(*.pkg.tar.zst)
           [[ "${#packages[@]}" -ge 1 && "${#packages[@]}" -le 2 ]] || {
@@ -168,17 +172,12 @@ jobs:
           /usr/bin/gpg --batch --armor --export "$expected" > /site/keys/kwin-no-tiles-signing-key.asc
           printf '%s\n' "$expected" > /site/GPG_FINGERPRINT.txt
 
-          # Generate the manifest inside the same container that creates the database.
-          cd /site/x86_64
+          # Generate the manifest in the mounted output directory.
+          cd /output
           sha256sum *.pkg.tar.zst *.pkg.tar.zst.sig kwin-no-tiles.db kwin-no-tiles.db.sig > SHA256SUMS
           rm -f /root/.gnupg/passphrase
-          tar -czf /tmp/kwin-no-tiles-repo-files.tar.gz -C /site/x86_64 \
-            kwin-no-tiles.db kwin-no-tiles.db.sig \
-            kwin-no-tiles.db.tar.gz kwin-no-tiles.db.tar.gz.sig SHA256SUMS
           CONTAINER_SCRIPT
-          docker cp kwin-no-tiles-repo-builder:/tmp/kwin-no-tiles-repo-files.tar.gz "$RUNNER_TEMP/kwin-no-tiles-repo-files.tar.gz"
-          tar -xzf "$RUNNER_TEMP/kwin-no-tiles-repo-files.tar.gz" -C site/x86_64
-          docker rm kwin-no-tiles-repo-builder
+          cp "$RUNNER_TEMP/kwin-no-tiles-repo-output/"* site/x86_64/
 
       - name: Verify repository files before publishing
         shell: bash
