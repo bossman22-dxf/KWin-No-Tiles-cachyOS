@@ -235,6 +235,8 @@ jobs:
           gpg --import kwin-no-tiles-signing-key.asc
           gpg --verify ${packages[0]##*/}.sig ${packages[0]##*/}
           sha256sum -c SHA256SUMS
+          sudo pacman-key --add kwin-no-tiles-signing-key.asc
+          sudo pacman-key --lsign-key "$(cat GPG_FINGERPRINT.txt)"
           sudo pacman -U ./${packages[0]##*/}
           ```
 
@@ -254,7 +256,10 @@ jobs:
              gpg --verify ${packages[0]##*/}.sig ${packages[0]##*/}
           4. Verify the package and signature checksums:
              sha256sum -c SHA256SUMS
-          5. Ensure pacman trusts the signing key, then install:
+          5. Add and locally trust the key in pacman's keyring:
+             sudo pacman-key --add kwin-no-tiles-signing-key.asc
+             sudo pacman-key --lsign-key "$(cat GPG_FINGERPRINT.txt)"
+          6. Install the package:
              sudo pacman -U ./${packages[0]##*/}
 
           This package conflicts with and replaces the stock 'kwin' package.
