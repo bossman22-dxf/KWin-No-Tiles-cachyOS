@@ -100,7 +100,7 @@ jobs:
             echo "::error::The newest release's fingerprint does not match the configured GPG signing key."
             exit 1
           }
-          mkdir -p "$RUNNER_TEMP/kwin-no-tiles-repo-output"
+          mkdir -p "$GITHUB_WORKSPACE/repo-output"
           docker run --rm --user 0:0 \
             --volume "$GITHUB_WORKSPACE/site:/site" \
             --volume "$RUNNER_TEMP/kwin-no-tiles-repo-output:/output" \
