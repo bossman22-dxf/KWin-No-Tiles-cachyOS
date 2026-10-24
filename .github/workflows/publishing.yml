@@ -103,7 +103,7 @@ jobs:
 
           # Write directly into the mounted Pages directory. Do not stream generated files
           # through Docker stdout: that was the source of the truncated/empty archive failures.
-          docker run --rm --user 0:0 \
+          docker run --rm -i --user 0:0 \
             --volume "$GITHUB_WORKSPACE/site/x86_64:/repo" \
             --volume "$GITHUB_WORKSPACE/site:/site-meta" \
             --env GPG_PRIVATE_KEY \
