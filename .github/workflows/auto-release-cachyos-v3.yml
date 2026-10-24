@@ -245,10 +245,16 @@ jobs:
           KWin NO-TILES for CachyOS (x86-64-v3)
           ======================================
 
-          1. Download the matching .pkg.tar.zst package and SHA256SUMS from this GitHub Release.
-          2. Verify the package checksum in the download directory:
+          1. Download the package, its matching .sig, SHA256SUMS,
+             kwin-no-tiles-signing-key.asc, and GPG_FINGERPRINT.txt.
+          2. Inspect the full key fingerprint and compare it with a maintainer-published
+             source you already trust before trusting/importing the key.
+          3. Import the public key into your user GPG keyring and verify the package:
+             gpg --import kwin-no-tiles-signing-key.asc
+             gpg --verify ${packages[0]##*/}.sig ${packages[0]##*/}
+          4. Verify the package and signature checksums:
              sha256sum -c SHA256SUMS
-          3. Install the package:
+          5. Ensure pacman trusts the signing key, then install:
              sudo pacman -U ./${packages[0]##*/}
 
           This package conflicts with and replaces the stock 'kwin' package.
