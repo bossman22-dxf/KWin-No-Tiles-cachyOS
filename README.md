@@ -37,6 +37,59 @@ The workflow never reuses a complete successful release tag. If source authentic
 
 The separate `.github/workflows/build-cachyos-kwin-6.8.1.yml` workflow is a manual-only baseline build that uploads a test artifact but does not publish a Release. The manual preflight workflow is also opt-in. None of these workflows is configured to run on `push`.
 
+## Package and repository signing
+
+Every successful automated GitHub Release now includes:
+
+- The verified package and its detached GPG signature (`.pkg.tar.zst.sig`).
+- The signing public key (`kwin-no-tiles-signing-key.asc`) and full fingerprint (`GPG_FINGERPRINT.txt`).
+- `SHA256SUMS`, covering both the package and its signature with relative filenames so it can be checked after downloading.
+- The build report, updated to record the signature verification result.
+
+The private signing key and passphrase remain in GitHub Actions secrets. The existing build checks still run first; signing is a required step before a release can be created. A release is considered complete only when its package signature and public-key information are present.
+
+The separate `.github/workflows/publishing.yml` workflow runs after a successful release workflow (or by manual dispatch). It downloads the newest one or two release packages, verifies their detached signatures with the project key, builds a pacman database with `repo-add`, signs the database, verifies that signature, and deploys the repository to GitHub Pages. It does not re-sign release packages. The Pages repository keeps its own copy of the last two package versions.
+
+### Configure the pacman repository
+
+After the first successful release and Pages deployment, the repository will be available at:
+
+`https://bossman22-dxf.github.io/KWin-No-Tiles-cachyOS/x86_64`
+
+Before trusting the key, verify its **full fingerprint through a maintainer-published source you already trust**. Do not rely solely on a fingerprint downloaded beside the key from the same website.
+
+Download and inspect the public key:
+
+```bash
+curl -fsSLo /tmp/kwin-no-tiles-signing-key.asc \
+  https://bossman22-dxf.github.io/KWin-No-Tiles-cachyOS/keys/kwin-no-tiles-signing-key.asc
+gpg --show-keys --with-fingerprint /tmp/kwin-no-tiles-signing-key.asc
+```
+
+After verifying the full fingerprint, add and locally trust the key:
+
+```bash
+sudo pacman-key --add /tmp/kwin-no-tiles-signing-key.asc
+sudo pacman-key --lsign-key YOUR_FULL_GPG_FINGERPRINT
+```
+
+Replace `YOUR_FULL_GPG_FINGERPRINT` with the verified fingerprint, without angle brackets. Then add this repository section to `/etc/pacman.conf`:
+
+```ini
+[kwin-no-tiles]
+SigLevel = Required
+Server = https://bossman22-dxf.github.io/KWin-No-Tiles-cachyOS/$arch
+```
+
+Synchronise and install:
+
+```bash
+sudo pacman -Syu
+sudo pacman -S kwin-no-tiles
+```
+
+**Important:** this package intentionally conflicts with and replaces the stock `kwin` package. Keep a rollback copy of the previous working package. The automated build checks do not replace live runtime testing on a CachyOS Plasma session.
+
 ## Safe maintenance rules
 
 - Do not install a package only because compilation succeeded. Runtime testing on a live CachyOS Plasma session remains a separate step.
