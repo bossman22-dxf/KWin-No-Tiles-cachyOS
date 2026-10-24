@@ -172,11 +172,12 @@ jobs:
           cd /site/x86_64
           sha256sum *.pkg.tar.zst *.pkg.tar.zst.sig kwin-no-tiles.db kwin-no-tiles.db.sig > SHA256SUMS
           rm -f /root/.gnupg/passphrase
+          tar -czf /tmp/kwin-no-tiles-repo-files.tar.gz -C /site/x86_64 \
+            kwin-no-tiles.db kwin-no-tiles.db.sig \
+            kwin-no-tiles.db.tar.gz kwin-no-tiles.db.tar.gz.sig SHA256SUMS
           CONTAINER_SCRIPT
-          # Copy generated files out explicitly; do not rely on container bind-mount writes.
-          docker cp kwin-no-tiles-repo-builder:/site/x86_64/. site/x86_64/
-          docker cp kwin-no-tiles-repo-builder:/site/keys/kwin-no-tiles-signing-key.asc site/keys/kwin-no-tiles-signing-key.asc
-          docker cp kwin-no-tiles-repo-builder:/site/GPG_FINGERPRINT.txt site/GPG_FINGERPRINT.txt
+          docker cp kwin-no-tiles-repo-builder:/tmp/kwin-no-tiles-repo-files.tar.gz "$RUNNER_TEMP/kwin-no-tiles-repo-files.tar.gz"
+          tar -xzf "$RUNNER_TEMP/kwin-no-tiles-repo-files.tar.gz" -C site/x86_64
           docker rm kwin-no-tiles-repo-builder
 
       - name: Verify repository files before publishing
