@@ -104,8 +104,8 @@ jobs:
           # Write directly into the mounted Pages directory. Do not stream generated files
           # through Docker stdout: that was the source of the truncated/empty archive failures.
           docker run --rm --user 0:0 \
-            --volume "$GITHUB_WORKSPACE/site/x86_64:/repo" \\
-            --volume "$GITHUB_WORKSPACE/site:/site-meta" \\
+            --volume "$GITHUB_WORKSPACE/site/x86_64:/repo" \
+            --volume "$GITHUB_WORKSPACE/site:/site-meta" \
             --env GPG_PRIVATE_KEY \
             --env GPG_PASSPHRASE \
             --env GPG_FINGERPRINT \
@@ -178,7 +178,7 @@ jobs:
           printf '%s\n' "$expected" > /site-meta/GPG_FINGERPRINT.txt
           rm -f /root/.gnupg/passphrase
           echo "Repository output files written inside container:" >&2
-          find /repo -maxdepth 1 -type f -printf '%f (%s bytes)\\n' | sort >&2
+          find /repo -maxdepth 1 -type f -printf '%f (%s bytes)\n' | sort >&2
           CONTAINER_SCRIPT
 
       - name: Generate and verify repository checksums
@@ -188,7 +188,7 @@ jobs:
           cd site/x86_64
           shopt -s nullglob
           echo "Repository files visible to the runner after container exit:"
-          find site/x86_64 -maxdepth 1 -type f -printf '%f (%s bytes)\\n' | sort
+          find . -maxdepth 1 -type f -printf '%f (%s bytes)\n' | sort
           packages=(*.pkg.tar.zst)
           signatures=(*.pkg.tar.zst.sig)
           [[ "${#packages[@]}" -ge 1 && "${#packages[@]}" -le 2 ]] || {
