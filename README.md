@@ -21,7 +21,7 @@ The setting is intended to leave ordinary window snapping separate. It does not 
 
 ## Automated build and release policy
 
-`.github/workflows/auto-release-cachyos-v3.yml` runs on a daily schedule or manual dispatch. It deliberately has **no push trigger**, so editing or importing repository files cannot accidentally start a long package build.
+`.github/workflows/auto-release-cachyos-v3.yml` runs every six hours or by manual dispatch. It deliberately has **no push trigger**, so editing or importing repository files cannot accidentally start a long package build.
 
 For each run it:
 
