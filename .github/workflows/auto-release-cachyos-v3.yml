@@ -163,10 +163,36 @@ jobs:
           - Build workflow: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
 
           The package has passed source-signature, patch-applicability, build, and package-content checks. Runtime testing on the maintainer's desktop has not been performed.
+
+          ## Download and install
+
+          Download the `.pkg.tar.zst` package asset below, then from the directory where it was downloaded run:
+
+          ```bash
+          sudo pacman -U ./${packages[0]##*/}
+          ```
+
+          This installs the project package and replaces the stock `kwin` package because the package intentionally conflicts with it. Keep a copy of the previous working package if you want a quick rollback. Verify the downloaded package against `SHA256SUMS` before installing.
           EOF
+
+          cat > "$output/INSTALL.txt" <<INSTALL_EOF
+          KWin NO-TILES for CachyOS (x86-64-v3)
+          ======================================
+
+          1. Download the matching .pkg.tar.zst package and SHA256SUMS from this GitHub Release.
+          2. Verify the package checksum in the download directory:
+             sha256sum -c SHA256SUMS
+          3. Install the package:
+             sudo pacman -U ./${packages[0]##*/}
+
+          This package conflicts with and replaces the stock 'kwin' package.
+          It is built for the x86-64-v3 baseline. The build checks pass, but
+          runtime testing on the maintainer's desktop has not been performed.
+          INSTALL_EOF
 
           gh release create "$RELEASE_TAG" \
             "${packages[0]}" \
+            "$output/INSTALL.txt" \
             "$output/PKGINFO.txt" \
             "$output/SHA256SUMS" \
             "$output/build-report.txt" \
