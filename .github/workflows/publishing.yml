@@ -6,12 +6,6 @@ on:
       - Automatically build and release CachyOS KWin NO-TILES
     types:
       - completed
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/publishing.yml
 
 permissions:
   contents: read
@@ -23,12 +17,40 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
+  check-new-build:
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'push' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_repository.full_name == github.repository)
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.check.outputs.publish }}
+    steps:
+      - name: Check whether this run produced a new package release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_STARTED_AT: ${{ github.event.workflow_run.run_started_at }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A scheduled/manual check with no new version must not republish Pages.
+          # Only publish when a matching signed package release was published during this build run.
+          releases="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,publishedAt)"
+          if jq -e --arg started "$RUN_STARTED_AT" '
+            any(.[]; (.tagName | startswith("kwin-no-tiles-") and endswith("-cachyos-v3"))
+              and .publishedAt >= $started)
+          ' <<<"$releases" >/dev/null; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "A new KWin package release was published during this run; updating the pacman repository."
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "No new package release was produced; skipping the Pages publish."
+          fi
+
+  publish:
+    needs: check-new-build
+    if: needs.check-new-build.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:
