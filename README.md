@@ -3,7 +3,7 @@
 KWin NO-TILES adds a setting to disable KWin's built-in native tiling while leaving the rest of KWin intact. It is intended for people who use an external tiling manager such as [PlasmaZones](https://github.com/fuddlesworth/PlasmaZones).
 THIS PACKAGE IS A REPLACEMENT FOR NATIVE KWIN AND WILL UNINSTALL IT WHEN YOU INSTALL VIA PACMAN! THIS IS EXPECTED BEHAVIOR!
 
-Install instructions can be found [Here](https://bossman22-dxf.github.io/KWin-No-Tiles-cachyOS/)
+Install instructions can be found [HERE](https://bossman22-dxf.github.io/KWin-No-Tiles-cachyOS/)
 
 ## Current scope
 
