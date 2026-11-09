@@ -332,14 +332,22 @@
 
 --- src/window.cpp
 +++ src/window.cpp
-@@ -4001,1 +4001,2 @@ void Window::sendToOutput(LogicalOutput *newOutput)
+@@ -4003,6 +4003,7 @@ void Window::sendToOutput(LogicalOutput *newOutput)
+     for (auto it = tso.constBegin(), end = tso.constEnd(); it != end; ++it) {
+         (*it)->sendToOutput(newOutput);
+     }
 +    updateWindowRules(Rules::Screen);
      finishInteractiveOutputChange(oldOutput);
+ }
 --- src/xdgshellwindow.cpp
 +++ src/xdgshellwindow.cpp
-@@ -1258,2 +1258,5 @@
+@@ -1256,6 +1256,9 @@ void XdgToplevelWindow::initialize()
+ {
+     setupWindowRules();
  
 +    LogicalOutput *initialOutput = rules()->checkOutput(moveResizeOutput(), true);
 +    setOutput(initialOutput);
 +    setMoveResizeOutput(initialOutput);
      std::optional<XdgToplevelSessionData> sessionData;
+     if (m_shellSurface->session()) {
+         sessionData = XdgToplevelSessionData::parse(m_shellSurface->session()->read());
