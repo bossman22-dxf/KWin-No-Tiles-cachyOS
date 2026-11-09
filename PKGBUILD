@@ -103,6 +103,10 @@ validpgpkeys=('E0A3EB202F8E57528E13E72FD7574483BB57B18D'
               '1FA881591C26B276D7A5518EEAAF29B42A678C20')
 
 prepare() {
+  echo '=== KWin source context: Window::sendToOutput ==='
+  grep -n -A32 -B4 'void Window::sendToOutput' "kwin-${pkgver}/src/window.cpp"
+  echo '=== KWin source context: XdgToplevelWindow::initialize ==='
+  grep -n -A22 -B4 'void XdgToplevelWindow::initialize' "kwin-${pkgver}/src/xdgshellwindow.cpp"
   patch --batch --fuzz=0 -d "kwin-${pkgver}" -Np0 \
     -i ../disable-native-tiling-6.8.patch
 }
