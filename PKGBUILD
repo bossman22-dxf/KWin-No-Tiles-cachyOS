@@ -94,7 +94,7 @@ source=("https://download.kde.org/stable/plasma/${_dirver}/kwin-${pkgver}.tar.xz
 # for the baseline KWin 6.8.1 source before building it.
 sha256sums=('SKIP'
             'SKIP'
-            'ed26a429c18031f5029c3c3bd210161d83869bccc441547b919f744f99ff8aa9')
+            'b2f41d5ba6e08b566b93a967cf30d329a7b3f81d884a16e1201f85608a8db8f1')
 
 validpgpkeys=('E0A3EB202F8E57528E13E72FD7574483BB57B18D'
               '0AAC775BB6437A8D9AF7A3ACFE0784117FBCE11D'
