@@ -51,6 +51,44 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "repository=$repository" >> "$GITHUB_OUTPUT"
 
+      - name: Preflight source patch against the exact KDE tarball
+        shell: bash
+        env:
+          UPSTREAM_VERSION: ${{ steps.upstream.outputs.version }}
+        run: |
+          set -euo pipefail
+          version="${UPSTREAM_VERSION%-*}"
+          work="$RUNNER_TEMP/kwin-source-preflight"
+          mkdir -p "$work"
+          archive="$work/kwin-$version.tar.xz"
+          curl --fail --location --retry 3 --retry-delay 5 \
+            "https://download.kde.org/stable/plasma/$version/kwin-$version.tar.xz" \
+            --output "$archive"
+          tar -xf "$archive" -C "$work"
+          patch --batch --fuzz=0 -d "$work/kwin-$version" -Np0 \
+            -i "$GITHUB_WORKSPACE/disable-native-tiling-6.8.patch"
+          python - "$work/kwin-$version/src/xdgshellwindow.cpp" <<'PY'
+          from pathlib import Path
+          import sys
+
+          path = Path(sys.argv[1])
+          source = path.read_text()
+          anchor = "void XdgToplevelWindow::initialize()\n{\n    setupWindowRules();"
+          addition = (
+              anchor
+              + "\n\n"
+              + "    LogicalOutput *initialOutput = rules()->checkOutput(moveResizeOutput(), true);\n"
+              + "    setOutput(initialOutput);\n"
+              + "    setMoveResizeOutput(initialOutput);"
+          )
+          if source.count(anchor) != 1:
+              raise SystemExit("Could not uniquely locate XdgToplevelWindow::initialize() setupWindowRules()")
+          if "LogicalOutput *initialOutput = rules()->checkOutput(moveResizeOutput(), true);" in source:
+              raise SystemExit("The XDG initial-output rule fix is already present")
+          path.write_text(source.replace(anchor, addition, 1))
+          PY
+          echo "KWin $version patch application and XDG source edit: PASS"
+
       - name: Build and validate without publishing
         shell: bash
         env:
