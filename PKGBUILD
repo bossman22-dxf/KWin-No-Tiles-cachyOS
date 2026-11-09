@@ -112,12 +112,12 @@ import sys
 
 path = Path(sys.argv[1])
 source = path.read_text()
-anchor = "void XdgToplevelWindow::initialize()\\n{\\n    setupWindowRules();"
+anchor = "void XdgToplevelWindow::initialize()\n{\n    setupWindowRules();"
 addition = (
     anchor
-    + "\\n\\n"
-    + "    LogicalOutput *initialOutput = rules()->checkOutput(moveResizeOutput(), true);\\n"
-    + "    setOutput(initialOutput);\\n"
+    + "\n\n"
+    + "    LogicalOutput *initialOutput = rules()->checkOutput(moveResizeOutput(), true);\n"
+    + "    setOutput(initialOutput);\n"
     + "    setMoveResizeOutput(initialOutput);"
 )
 if source.count(anchor) != 1:
