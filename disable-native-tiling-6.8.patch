@@ -337,7 +337,9 @@
      finishInteractiveOutputChange(oldOutput);
 --- src/xdgshellwindow.cpp
 +++ src/xdgshellwindow.cpp
-@@ -1257,1 +1257,4 @@ void XdgToplevelWindow::initialize()
+@@ -1255,3 +1255,6 @@
+ void XdgToplevelWindow::initialize()
+ {
      setupWindowRules();
 +    LogicalOutput *initialOutput = rules()->checkOutput(moveResizeOutput(), true);
 +    setOutput(initialOutput);
