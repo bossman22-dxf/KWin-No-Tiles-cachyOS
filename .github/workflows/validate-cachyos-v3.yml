@@ -17,7 +17,7 @@ permissions:
 
 concurrency:
   group: kwin-no-tiles-cachyos-v3-validation
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   validate-and-build:
