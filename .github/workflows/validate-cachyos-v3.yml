@@ -1,0 +1,101 @@
+name: Validate KWin NO-TILES patch and build (CachyOS v3)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - test
+    paths:
+      - '.github/workflows/validate-cachyos-v3.yml'
+      - '.github/scripts/build-cachyos-v3.sh'
+      - '.github/scripts/query-cachyos-v3.sh'
+      - 'PKGBUILD'
+      - 'disable-native-tiling-6.8.patch'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kwin-no-tiles-cachyos-v3-validation
+  cancel-in-progress: false
+
+jobs:
+  validate-and-build:
+    name: Verify source, apply patch and build package (no release)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+
+    steps:
+      - name: Check out test branch
+        uses: actions/checkout@v5
+        with:
+          ref: test
+
+      - name: Query live CachyOS v3 KWin metadata
+        id: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/kwin-validation"
+          docker run --rm --user 0:0 \
+            --volume "$GITHUB_WORKSPACE/.github/scripts/query-cachyos-v3.sh:/query-cachyos-v3.sh:ro" \
+            cachyos/cachyos:latest bash /query-cachyos-v3.sh \
+            | tee "$RUNNER_TEMP/kwin-validation/upstream-metadata.txt"
+
+          version="$(sed -n 's/^Version:[[:space:]]*//p' "$RUNNER_TEMP/kwin-validation/upstream-metadata.txt" | head -n 1)"
+          repository="$(sed -n 's/^Repository:[[:space:]]*//p' "$RUNNER_TEMP/kwin-validation/upstream-metadata.txt" | head -n 1)"
+          [[ -n "$version" && -n "$repository" ]] || {
+            echo "::error::Could not parse the live CachyOS KWin version/repository."
+            exit 1
+          }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "repository=$repository" >> "$GITHUB_OUTPUT"
+
+      - name: Build and validate without publishing
+        shell: bash
+        env:
+          EXPECTED_PACKAGE_VERSION: ${{ steps.upstream.outputs.version }}
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/kwin-validation"
+          mkdir -p "$output"
+          chmod 0777 "$output"
+
+          docker run --rm --user 0:0 \
+            --volume "$GITHUB_WORKSPACE:/input:ro" \
+            --volume "$GITHUB_WORKSPACE/.github/scripts/build-cachyos-v3.sh:/build-cachyos-v3.sh:ro" \
+            --volume "$output:/output" \
+            --env EXPECTED_PACKAGE_VERSION="$EXPECTED_PACKAGE_VERSION" \
+            cachyos/cachyos:latest bash /build-cachyos-v3.sh
+
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: kwin-no-tiles-cachyos-v3-validation-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/kwin-validation/upstream-metadata.txt
+            ${{ runner.temp }}/kwin-validation/*.pkg.tar.zst
+            ${{ runner.temp }}/kwin-validation/PKGINFO.txt
+            ${{ runner.temp }}/kwin-validation/SRCINFO.generated
+            ${{ runner.temp }}/kwin-validation/SHA256SUMS
+            ${{ runner.temp }}/kwin-validation/build-report.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Summarize validation outcome
+        if: always()
+        shell: bash
+        env:
+          UPSTREAM_VERSION: ${{ steps.upstream.outputs.version }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          {
+            echo "## KWin NO-TILES validation"
+            echo
+            echo "- Branch: `test`"
+            echo "- Live CachyOS KWin version: ${UPSTREAM_VERSION:-not determined}"
+            echo "- Result: ${JOB_STATUS}"
+            echo "- This workflow does not sign packages, create/update/delete releases or tags, or modify repository files."
+            echo "- Build evidence is uploaded as a workflow artifact when available."
+          } >> "$GITHUB_STEP_SUMMARY"
