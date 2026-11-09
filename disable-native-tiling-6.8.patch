@@ -332,7 +332,7 @@
 
 --- src/window.cpp
 +++ src/window.cpp
-@@ -4003,5 +4003,6 @@ void Window::sendToOutput(LogicalOutput *newOutput)
+@@ -3998,5 +3998,6 @@ void Window::sendToOutput(LogicalOutput *newOutput)
      for (auto it = tso.constBegin(), end = tso.constEnd(); it != end; ++it) {
          (*it)->sendToOutput(newOutput);
      }
@@ -341,7 +341,7 @@
  }
 --- src/xdgshellwindow.cpp
 +++ src/xdgshellwindow.cpp
-@@ -1256,4 +1259,7 @@ void XdgToplevelWindow::initialize()
+@@ -1255,4 +1258,7 @@ void XdgToplevelWindow::initialize()
  {
      setupWindowRules();
  
