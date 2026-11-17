@@ -11,6 +11,7 @@ pkgbase = kwin-no-tiles
 	validpgpkeys = D07BD8662C56CB291B316EB2F5675605C74E02CF
 	validpgpkeys = 90A968ACA84537CC27B99EAF2C8DF587A6D4AAC1
 	validpgpkeys = 1FA881591C26B276D7A5518EEAAF29B42A678C20
+	validpgpkeys = 58743C0A93487794BC44ECE873C3D7758E7A544A
 	makedepends = extra-cmake-modules
 	makedepends = kdoctools
 	makedepends = krunner
