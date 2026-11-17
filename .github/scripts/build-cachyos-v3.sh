@@ -118,6 +118,8 @@ KDE_SIGNING_KEYS=(
   D07BD8662C56CB291B316EB2F5675605C74E02CF
   90A968ACA84537CC27B99EAF2C8DF587A6D4AAC1
   1FA881591C26B276D7A5518EEAAF29B42A678C20
+  # Bhushan Shah — Plasma 6.8.3 release manager (official KDE fingerprint)
+  58743C0A93487794BC44ECE873C3D7758E7A544A
 )
 for key in "${KDE_SIGNING_KEYS[@]}"; do
   if ! runuser -u builder -- env HOME=/home/builder GNUPGHOME=/home/builder/.gnupg gpg --batch --list-keys "$key" >/dev/null 2>&1; then
