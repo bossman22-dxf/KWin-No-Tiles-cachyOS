@@ -94,17 +94,40 @@ source=("https://download.kde.org/stable/plasma/${_dirver}/kwin-${pkgver}.tar.xz
 # for the baseline KWin 6.8.1 source before building it.
 sha256sums=('SKIP'
             'SKIP'
-            '6aae75198b0bd8514981bbdce121675b5d50f10638436e8e58980b2e9056171e')
+            '160c16c43a00fd90d9b8892238e18ea27163e0ea6062251427b3668c91bfc19c')
 
 validpgpkeys=('E0A3EB202F8E57528E13E72FD7574483BB57B18D'
               '0AAC775BB6437A8D9AF7A3ACFE0784117FBCE11D'
               'D07BD8662C56CB291B316EB2F5675605C74E02CF'
               '90A968ACA84537CC27B99EAF2C8DF587A6D4AAC1'
-              '1FA881591C26B276D7A5518EEAAF29B42A678C20')
+              '1FA881591C26B276D7A5518EEAAF29B42A678C20'
+              # Bhushan Shah — Plasma 6.8.3 release manager (official KDE fingerprint)
+              '58743C0A93487794BC44ECE873C3D7758E7A544A')
 
 prepare() {
   patch --batch --fuzz=0 -d "kwin-${pkgver}" -Np0 \
     -i ../disable-native-tiling-6.8.patch
+
+  python - "kwin-${pkgver}/src/xdgshellwindow.cpp" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+source = path.read_text()
+anchor = "void XdgToplevelWindow::initialize()\n{\n    setupWindowRules();"
+addition = (
+    anchor
+    + "\n\n"
+    + "    LogicalOutput *initialOutput = rules()->checkOutput(moveResizeOutput(), true);\n"
+    + "    setOutput(initialOutput);\n"
+    + "    setMoveResizeOutput(initialOutput);"
+)
+if source.count(anchor) != 1:
+    raise SystemExit("Could not uniquely locate XdgToplevelWindow::initialize() setupWindowRules()")
+if "LogicalOutput *initialOutput = rules()->checkOutput(moveResizeOutput(), true);" in source:
+    raise SystemExit("The XDG initial-output rule fix is already present")
+path.write_text(source.replace(anchor, addition, 1))
+PY
 }
 
 build() {

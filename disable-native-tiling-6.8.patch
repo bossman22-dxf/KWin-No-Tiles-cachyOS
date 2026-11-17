@@ -329,4 +329,9 @@
 +    if (!options->nativeTilingEnabled() || !window->isResizable() || window->isAppletPopup()) {
          return false;
      }
- 
+
+--- src/window.cpp
++++ src/window.cpp
+@@ -4001,1 +4001,2 @@ void Window::sendToOutput(LogicalOutput *newOutput)
++    updateWindowRules(Rules::Screen);
+     finishInteractiveOutputChange(oldOutput);
