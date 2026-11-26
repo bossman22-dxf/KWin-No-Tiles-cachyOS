@@ -308,7 +308,8 @@ jobs:
   publish-repository:
     name: Prepare signed pacman repository
     needs: check-build-release
-    if: needs.check-build-release.outputs.should_build == 'true'
+    # Manual runs also republish existing signed packages, allowing Pages recovery without a new KWin build.
+    if: needs.check-build-release.outputs.should_build == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
